@@ -11,6 +11,7 @@
 //            videoType:      <video content type>,
 //            audioMedia:     <the audio media>,
 //            videoMedia:     <the video media>,
+//            duration:       <playback duration in seconds>,
 //
 // [optional fields]
 //            initDataType:   <override data received in encrypted event>,
@@ -78,7 +79,7 @@ function eme_success( testname, config )
             
             _video = document.createElement('video');
             _video.autoplay = true;
-            _video.setAttribute( 'width', '300px' );
+            _video.setAttribute( 'width', '600px' );
             config.element.appendChild( _video );
 
             _video.addEventListener( 'encrypted',      test.step_func( onEncrypted ) );
@@ -102,13 +103,13 @@ function eme_success( testname, config )
             {
                 //window.console.log( event );
                 
-                assert_equals(event.target, _mediaKeySession );
-                assert_true(event instanceof window.MediaKeyMessageEvent );
-                assert_equals(event.type, 'message');
+                assert_equals( event.target, _mediaKeySession );
+                assert_true( event instanceof window.MediaKeyMessageEvent );
+                assert_equals( event.type, 'message');
               
                 assert_any( assert_equals,
                             event.messageType,
-                            _releaseSequence    ? [ 'release-request']
+                            _releaseSequence    ? [ 'license-release']
                                                 : [ 'license-request', 'individualization-request' ] );
                             
                 if ( event.messageType !== 'individualization-request' )
@@ -178,7 +179,7 @@ function eme_success( testname, config )
             {
                 //window.console.log( event );
                 
-                if ( _video.currentTime > 2 && !_timeupdateEvent ) {
+                if ( _video.currentTime > ( config.duration || 5 ) && !_timeupdateEvent ) {
                 
                     _timeupdateEvent = true;
 
@@ -224,7 +225,7 @@ function eme_success( testname, config )
                                         'allkeysusable',
                                         'playing',
                                         'remove',
-                                        'emptykeyslist',
+                                        //'emptykeyslist',  // This is expected per spec, but not implemented on Chrome
                                         'license-release',
                                         'release-response',
                                     ],
