@@ -137,8 +137,6 @@ function eme_success( testname, config )
     
             function onKeyStatusesChange( event )
             {
-                //window.console.log( event );
-                
                 assert_equals(event.target, _mediaKeySession );
                 assert_true(event instanceof window.Event );
                 assert_equals(event.type, 'keystatuseschange' );
@@ -202,6 +200,8 @@ function eme_success( testname, config )
 
             function onClosed()
             {
+                window.console.log( testname + ' closed' );
+                
                 if ( config.sessiontype === 'temporary' )
                 {
                     assert_array_equals( _events,
@@ -225,7 +225,7 @@ function eme_success( testname, config )
                                         'allkeysusable',
                                         'playing',
                                         'remove',
-                                        //'emptykeyslist',  // This is expected per spec, but not implemented on Chrome
+                                        'emptykeyslist',        // This is expected per spec, but not implemented on Chrome
                                         'license-release',
                                         'release-response',
                                     ],

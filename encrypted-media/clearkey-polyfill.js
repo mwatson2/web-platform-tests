@@ -342,6 +342,8 @@
                     
                     this._resolveClosed();
                     
+                    delete this._session;
+                    
                     resolve();
                 }
                 else
@@ -359,6 +361,8 @@
     MediaKeySessionProxy.prototype.close = function close()
     {
         if ( this._wasclosed ) return Promise.resolved();
+ 
+        window.console.log( 'proxy session closed' );
  
         this._wasclosed = true;
  
@@ -378,18 +382,15 @@
  
     MediaKeySessionProxy.prototype.remove = function remove()
     {
-        var session = this._session;
-        if ( !session ) return Promise.reject( new InvalidStateError() );
+        if ( !this._session ) return Promise.reject( new InvalidStateError() );
  
         this._unlisten();
  
         this._mediaKeysProxy._removeSession( this );
  
-        delete this._session;
- 
         this._removing = true;
  
-        return session.close()
+        return this._session.close()
         .then( function() {
         
             var msg = { kids: this._kids };
