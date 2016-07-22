@@ -4,6 +4,5 @@ awkprog = /<\/head>/	{ print "    <script src=/encrypted-media/polyfill/chrome-p
 all : $(patsubst ../%,%,$(wildcard ../*.html))
 
 %.html : ../%.html
-#	@sed -e 's/<\/head>/  <script src=\/encrypted-media\/polyfill\/polyfill.js><\/script><\/head>/' $< > $@
-	awk '$(awkprog)' $< > $@
+	@awk '$(awkprog)' $< > $@
 

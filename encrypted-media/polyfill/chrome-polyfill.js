@@ -1,7 +1,7 @@
 (function(){
     if(navigator.userAgent.toLowerCase().indexOf('chrome') > -1){
  
-        if ( /chrome\/([0-9]*)\./.exec( navigator.userAgent.toLowerCase() )[1] | 0 ) < 54 ) {
+        if ( ( /chrome\/([0-9]*)\./.exec( navigator.userAgent.toLowerCase() )[1] | 0 ) < 54 ) {
  
             // Work around https://bugs.chromium.org/p/chromium/issues/detail?id=622956
             // Chrome does not fire the empty keystatuschange event when a session is closed
@@ -18,11 +18,11 @@
             MediaKeySession.prototype.close = function close()
             {
                 this.__closed = true;
-     
+ 
                 setTimeout( function() {
-                    this.dispatchEvent( new Event( 'keystatuseschange' ) );
+                        this.dispatchEvent( new Event( 'keystatuseschange' ) );
                 }.bind( this ), 0 );
-     
+
                 return _mediaKeySessionClose.call( this );
             };
      
