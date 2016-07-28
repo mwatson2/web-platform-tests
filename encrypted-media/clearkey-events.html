@@ -15,6 +15,9 @@
     <script src=/encrypted-media/util/utf8.js></script>
     <script src=/encrypted-media/util/fetch.js></script>
 
+    <!-- Content metadata -->
+    <script src=/encrypted-media/content/content-metadata.js></script>
+
     <!-- Message handler for Clear Key -->
     <script src=/encrypted-media/util/clearkey-messagehandler.js></script>
 
@@ -23,20 +26,17 @@
 
   </head>
   <body>
-    <h1 class="instructions">Description</h1>
-    <p class="instructions">
-      This test verifies correct initial event sequence with Clear Key
-    </p>
-
     <div id='log'></div>
 
     <script>
-        var config = {  keysystem:          'org.w3.clearkey',
-                        messagehandler:     messagehandler,
-                     };
-
-        runTest(config);
-
+        getSupportedContent( 'org.w3.clearkey' )
+        .then( function( contents )
+        {
+            runTest( {  keysystem:          'org.w3.clearkey',
+                        content:            contents[ 0 ],
+                        messagehandler:     messagehandler.bind( contents[ 0 ] ),
+                     } );
+        } );
     </script>
   </body>
 </html>
