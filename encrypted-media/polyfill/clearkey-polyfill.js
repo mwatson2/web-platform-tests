@@ -78,21 +78,38 @@
     {
         this._mediaKeys = mediaKeys;
         this._sessions = [ ];
+        this._videoelement = undefined;
+        this._onTimeUpdateListener = MediaKeysProxy.prototype._onTimeUpdate.bind( this );
     }
  
     MediaKeysProxy.prototype._setVideoElement = function _setVideoElement( videoElement )
     {
-        if ( this._videoElement )
+        if ( videoElement !== this._videoelement )
         {
-            this._sessions.forEach( function( session ) { session._unlisten(); } );
-            delete this._videoElement;
-        }
+            if ( this._videoelement )
+            {
+                this._videoelement.removeEventListener( 'timeupdate', this._onTimeUpdateListener );
+            }
  
-        if ( videoElement )
-        {
-            this._videoElement = videoElement;
-            this._sessions.forEach( function( session ) { session._listen( videoElement ); } );
+            this._videoelement = videoElement;
+ 
+            if ( this._videoelement )
+            {
+                this._videoelement.addEventListener( 'timeupdate', this._onTimeUpdateListener );
+            }
         }
+    };
+ 
+    MediaKeysProxy.prototype._onTimeUpdate = function( event )
+    {
+        this._sessions.forEach( function( session  ) {
+        
+            if ( session._sessionType === 'persistent-usage-record' )
+            {
+                session._onTimeUpdate( event );
+            }
+        
+        } );
     };
  
     MediaKeysProxy.prototype._removeSession = function _removeSession( session )
@@ -107,8 +124,6 @@
  
         var session = new MediaKeySessionProxy( this, sessionType );
         this._sessions.push( session );
- 
-        if ( this._videoElement ) session._listen( this._videoElement );
  
         return session;
     };
@@ -125,11 +140,14 @@
         this._mediaKeysProxy = mediaKeysProxy
         this._sessionType = sessionType;
         this._sessionId = "";
-
-        this._loading = false;
-        this._removing = false;
-        this._wasclosed = false;
-        this._sessionclosed = false;
+ 
+        // MediaKeySessionProxy states
+        // 'created' - After initial creation
+        // 'loading' - Persistent license session waiting for key message to load stored keys
+        // 'active' - Normal active state - proxy all key messages
+        // 'removing' - Release message generated, waiting for ack
+        // 'closed' - Session closed
+        this._state = 'created';
  
         this._closed = new Promise( function( resolve ) { this._resolveClosed = resolve; }.bind( this ) );
     }
@@ -149,36 +167,50 @@
     {
         this._session = this._mediaKeysProxy._mediaKeys.createSession();
  
-        this._session.addEventListener( 'message', this._onMessage.bind( this ) );
-        this._session.addEventListener( 'keystatuseschange', this._onKeyStatusesChange.bind( this ) );
- 
-        this._listen( this._videoElement );
+        this._session.addEventListener( 'message', MediaKeySessionProxy.prototype._onMessage.bind( this ) );
+        this._session.addEventListener( 'keystatuseschange', MediaKeySessionProxy.prototype._onKeyStatusesChange.bind( this ) );
     };
  
     MediaKeySessionProxy.prototype._onMessage = function _onMessage( event )
     {
-        if ( this._loading )
+        switch( this._state )
         {
-            this._session.update( toUtf8( { keys: this._keys } ) )
-            .then( this._loaded );
+            case 'loading':
+                this._session.update( toUtf8( { keys: this._keys } ) )
+                .then( this._loaded );
  
-            this._loading = false;
-        }
-        else
-        {
-            this.dispatchEvent( event );
+                break;
+ 
+            case 'active':
+                this.dispatchEvent( event );
+                break;
+ 
+            default:
+                // Swallow the event
+                break;
         }
     };
  
     MediaKeySessionProxy.prototype._onKeyStatusesChange = function _onKeyStatusesChange( event )
     {
-        this.dispatchEvent( event );
+        switch( this._state )
+        {
+            case 'active' :
+            case 'removing' :
+                this.dispatchEvent( event );
+                break;
+ 
+            default:
+                // Swallow the event
+                break;
+        }
     };
  
     MediaKeySessionProxy.prototype._onTimeUpdate = function _onTimeUpdate( event )
     {
-        if ( !this._tfirst ) this._tfirst = Date.now();
-        this._tlatest = Date.now();
+        if ( !this._firstTime ) this._firstTime = Date.now();
+        this._latestTime = Date.now();
+        this._store();
     };
  
     MediaKeySessionProxy.prototype._queueMessage = function _queueMessage( messageType, message )
@@ -192,35 +224,9 @@
         }.bind( this ) );
     };
  
-    MediaKeySessionProxy.prototype._listen = function _listen( videoElement )
-    {
-        if ( this._sessionType !== 'persistent-usage-record' ) return;
-
-        this._unlisten();
-        this._videoElement = videoElement;
- 
-        if ( this._session && this._videoElement )
-        {
-            this._onTimeUpdateListener = this._onTimeUpdate.bind( this );
-            this._videoElement.addEventListener( 'timeupdate', this._onTimeUpdateListener );
-        }
-
-    };
- 
-    MediaKeySessionProxy.prototype._unlisten = function _unlisten()
-    {
-        if ( this._sessionType !== 'persistent-usage-record' ) return;
- 
-        if ( this._videoElement && this._onTimeUpdateListener )
-        {
-            this._videoElement.removeEventListener( 'timeupdate', this._onTimeUpdateListener );
-            delete this._onTimeUpdateListener;
-        }
-    };
- 
     function _storageKey( sessionId )
     {
-        return '__clearkey__' + sessionId;
+        return sessionId;
     }
  
     MediaKeySessionProxy.prototype._store = function _store()
@@ -230,8 +236,8 @@
         if ( this._sessionType === 'persistent-usage-record' )
         {
             data = { kids: this._kids };
-            if ( this._tfirst ) data.tfirst = this._tfirst;
-            if ( this._tlatest ) data.tlatest = this._tlatest;
+            if ( this._firstTime ) data.firstTime = this._firstTime;
+            if ( this._latestTime ) data.latestTime = this._latestTime;
         }
         else
         {
@@ -243,19 +249,28 @@
  
     MediaKeySessionProxy.prototype._load = function _load( sessionId )
     {
-        var data = JSON.parse( window.localStorage.getItem( _storageKey( sessionId ) ) );
+        var store = window.localStorage.getItem( _storageKey( sessionId ) );
+        if ( store === null ) return false;
+
+        var data;
+        try { data = JSON.parse( store ) } catch( error ) {
+            return false;
+        }
  
         if ( data.kids )
         {
             this._sessionType = 'persistent-usage-record';
             this._keys = data.kids.map( function( kid ) { return { kid: kid }; } );
-            if ( data.tfirst ) this._tfirst = data.tfirst;
-            if ( data.tlatest ) this._tlatest = data.tlatest;
+            if ( data.firstTime ) this._firstTime = data.firstTime;
+            if ( data.latestTime ) this._latestTime = data.latestTime;
         }
         else
         {
+            this._sessionType = 'persistent-license';
             this._keys = data.keys;
         }
+ 
+        return true;
     };
  
     MediaKeySessionProxy.prototype._clear = function _clear()
@@ -265,40 +280,50 @@
  
     MediaKeySessionProxy.prototype.generateRequest = function generateRequest( initDataType, initData )
     {
-        if ( this._session ) return Promise.reject( new InvalidStateError() );
+        if ( this._state !== 'created' ) return Promise.reject( new InvalidStateError() );
  
         this._createSession();
- 
+
+        this._state = 'active';
+
         return this._session.generateRequest( initDataType, initData )
         .then( function() {
             this._sessionId = Math.random().toString(36).slice(2);
-        });
+        }.bind( this ) );
     };
  
     MediaKeySessionProxy.prototype.load = function load( sessionId )
     {
+        if ( this._state !== 'created' ) return Promise.reject( new InvalidStateError() );
+        
         return new Promise( function( resolve, reject ) {
         
             try
             {
-                this._load( sessionId );
+                if ( !this._load( sessionId ) )
+                {
+                    resolve( false );
+                    
+                    return;
+                }
                 
                 if ( this._sessionType === 'persistent-usage-record' )
                 {
                     var msg = { kids: this._kids };
-                    if ( this._tfirst ) msg.tfirst = this._tfirst;
-                    if ( this._tlatest ) msg.tlatest = this._tlatest;
+                    if ( this._firstTime ) msg.firstTime = this._firstTime;
+                    if ( this._latestTime ) msg.latestTime = this._latestTime;
                     
                     this._queueMessage( 'license-release', msg );
                     
-                    resolve();
+                    this._state = 'removing';
+                    
+                    resolve( true );
                 }
                 else
                 {
                     this._createSession();
                     
-                    this._loading = true;
-                    this._loaded = resolve;
+                    this._state = 'loading';
                     
                     var initData = { kids: this._kids };
                     
@@ -316,27 +341,28 @@
  
     MediaKeySessionProxy.prototype.update = function update( response )
     {
-        if ( this._wasclosed ) return Promise.reject( new InvalidStateError() );
- 
         return new Promise( function( resolve, reject ) {
-            try
+        
+            switch( this._state )
             {
-                var message = fromUtf8( response );
-                if ( !this._removing && message.keys )
-                {
+                case 'active' :
+                
+                    var message = fromUtf8( response );
+ 
                     // JSON Web Key Set
                     this._keys = message.keys;
                     
                     this._store();
                     
                     resolve( this._session.update( response ) );
-                }
-                else if ( this._removing && message.kids )
-                {
-                    this._clear();
                     
-                    this._removing = false;
-                    this._wasclosed = true;
+                    break;
+     
+                case 'removing' :
+     
+                    this._state = 'closed';
+                    
+                    this._clear();
                     
                     this._mediaKeysProxy._removeSession( this );
                     
@@ -345,31 +371,24 @@
                     delete this._session;
                     
                     resolve();
-                }
-                else
-                {
-                    reject( new TypeError() );
-                }
+                    
+                    break;
+     
+                default:
+                    reject( new InvalidStateError() );
             }
-            catch( error )
-            {
-                reject( error );
-            }
+        
         }.bind( this ) );
     };
  
     MediaKeySessionProxy.prototype.close = function close()
     {
-        if ( this._wasclosed ) return Promise.resolved();
+        if ( this._state === 'closed' ) return Promise.resolve();
  
-        window.console.log( 'proxy session closed' );
- 
-        this._wasclosed = true;
- 
-        this._unlisten();
- 
+        this._state = 'closed';
+        
         this._mediaKeysProxy._removeSession( this );
- 
+        
         this._resolveClosed();
  
         var session = this._session;
@@ -382,13 +401,11 @@
  
     MediaKeySessionProxy.prototype.remove = function remove()
     {
-        if ( !this._session ) return Promise.reject( new InvalidStateError() );
+        if ( this._state !== 'active' || !this._session ) return Promise.reject( new DOMException('InvalidStateError') );
  
-        this._unlisten();
+        this._state = 'removing';
  
         this._mediaKeysProxy._removeSession( this );
- 
-        this._removing = true;
  
         return this._session.close()
         .then( function() {
@@ -397,8 +414,12 @@
             
             if ( this._sessionType === 'persistent-usage-record' )
             {
-                if ( this._tfirst ) msg.tfirst = this._tfirst;
-                if ( this._tlatest ) msg.tlatest = this._tlatest;
+                if ( this._firstTime ) msg.firstTime = this._firstTime;
+                if ( this._latestTime ) msg.latestTime = this._latestTime;
+            }
+            else
+            {
+                this._clear();
             }
             
             this._queueMessage( 'license-release', msg );
