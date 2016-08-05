@@ -1,0 +1,151 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset=utf-8>
+    <meta name="timeout" content="long">
+    <title>Encrypted Media Extensions: Retrieve stored persistent-usage-record</title>
+    <link rel="help" href="https://w3c.github.io/encrypted-media/">
+
+    <!-- Helper scripts for Encrypted Media Extensions tests  -->
+    <script src=/encrypted-media/util/utils.js></script>
+    <script src=/encrypted-media/util/fetch.js></script>
+    <script src=/encrypted-media/util/utf8.js></script>
+
+    <!-- Message handler for Clear Key keysystem -->
+    <script src=/encrypted-media/util/drmtoday-messagehandler.js></script>
+
+  </head>
+  <body>
+    <div id='log'></div>
+
+    <script>
+    
+    consoleWrite('loading...');
+
+    window.addEventListener( 'message', function( event ) {
+    
+        consoleWrite( JSON.stringify( event.type ) + ',' + JSON.stringify( event.data ) );
+
+        var config = event.data.config,
+            configuration = {   initDataTypes: [ config.initDataType ],
+                                audioCapabilities: [ { contentType: config.audioType } ],
+                                videoCapabilities: [ { contentType: config.videoType } ],
+                                sessionTypes: [ 'persistent-usage-record' ] },
+            assertions = [ ],
+            _mediaKeys,
+            _mediaKeySession;
+
+            config.messagehandler = messagehandler;
+            
+        function onFailure(error) {
+            
+            consoleWrite( error );
+            
+            assertions.push( { actual: false, expected: true, message: error } );
+
+            window.opener.postMessage(assertions, '*');
+        }
+
+        function onMessage( event )
+        {
+            assertions.push( { expected: true, actual: event instanceof window.MediaKeyMessageEvent, message: "event is of correct class" } );
+            assertions.push( { expected: 'message', actual: event.type, message: "event type is message" } );
+            assertions.push( { expected: 'license-release', actual: event.messageType, message: "message type is license-release" } );
+            
+            consoleWrite( event.messageType );
+            
+            var messageView = new Uint8Array(event['message']);
+            var message = extractMessageContents(event.message, 'PlayReadyKeyMessage', 'Challenge');
+            
+            consoleWrite( message );
+            
+            config.messagehandler( config.keysystem, event.messageType, event.message )
+            .then( function( response ) {
+                event.target.update( response ).catch( onFailure );
+            });
+        }
+
+        consoleWrite( "obtaining access:" + JSON.stringify( configuration ) );
+        navigator.requestMediaKeySystemAccess(config.keysystem, [ configuration ] ).then(function(access) {
+            
+            consoleWrite( "obtained access" );
+
+            return access.createMediaKeys();
+
+        }).then(function(mediaKeys) {
+        
+            consoleWrite( "obtained media keys" );
+        
+            _mediaKeys = mediaKeys;
+                
+            return config.servercertificate ? _mediaKeys.setServerCertificate( config.servercertificate ) : true;
+
+        }).then( function( success ) {
+        
+            consoleWrite( "setServerCertificate " + success );
+
+            _mediaKeySession = _mediaKeys.createSession( 'persistent-release-message' );
+
+            _mediaKeySession.addEventListener( 'message', onMessage );
+            _mediaKeySession.closed.then( function() {
+
+                window.opener.postMessage(assertions, '*');
+
+            });
+        
+            consoleWrite( "Loading: " + event.data.sessionId );
+
+            //return _mediaKeySession.load( 'KgA=' );
+            return _mediaKeySession.load( event.data.sessionId );
+        }).then(function( success ) {
+            consoleWrite( "Loading " + success );
+                
+            if ( success ) {
+                _mediaKeySession.remove().then( function() {
+                    consoleWrite( "Remove succeeded...")
+                }).catch(onFailure);
+            } else {
+                onFailure( "Load failed" );
+            }
+        }).catch( onFailure );
+
+    } );
+    
+    function extractMessageContents(data, tags) {
+        // playready data is UTF-16 or UTF-7 encoded XML
+        // do a rought decoding and find the value using regex
+        var xml = '',
+            i,
+            l = data.length,
+            c;
+
+        for (i = 0; i < l; i++) {
+            c = data[i];
+            if (c > 0) {
+                xml += String.fromCharCode(c);
+            }
+        }
+
+        // extract value from xml via RegExp
+        // basicaly look for a something like this: '<[ns:]tag1 [args]>.....<[ns:]tag2 [args]>****VALUE****</[ns:]tag2>.....<[ns:]tag1>'
+        var reString = '\\s*(.*)\\s*';
+        var tag;
+        for (i = arguments.length - 1; i > 0; i--) {
+            tag = arguments[i];
+            // early exit if there is no matching string
+            if (xml.search(tag) < 0) {
+                return;
+            }
+            tag = '(?:[^:].*:|)' + tag; // non-capturing prefix for with or without namespace
+            reString = '[\\s\\S]*<' + tag + '[^>]*>' + reString + '<\/' + tag + '>[\\s\\S]*';
+        }
+        var re = new RegExp(reString);
+        var matches = xml.match(re);
+        if (matches) {
+            return matches[1];
+        }
+    }
+
+    </script>
+  </body>
+</html>

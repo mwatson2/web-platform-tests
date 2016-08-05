@@ -74,10 +74,11 @@ function createKeyIDs() {
 function getSupportedKeySystem() {
     var userAgent = navigator.userAgent.toLowerCase();
     var keysystem = undefined;
-    if( userAgent.indexOf('chrome') > -1 || userAgent.indexOf('firefox') > -1 ) {
-        keysystem = 'com.widevine.alpha';
-    } else if (userAgent.indexOf('edge') > -1 ) {
+    if (userAgent.indexOf('edge') > -1 ) {
         keysystem = 'com.microsoft.playready';
+    }
+    else if( userAgent.indexOf('chrome') > -1 || userAgent.indexOf('firefox') > -1 ) {
+        keysystem = 'com.widevine.alpha';
     }
     return keysystem;
 }
@@ -196,6 +197,14 @@ function dumpKeyStatuses(keyStatuses)
     });
 }
 
+function dumpKeyStatusesForEdge(keyStatuses)
+{
+    consoleWrite("keyStatuses.forEach()");
+    keyStatuses.forEach(function(keyId, status) {
+        consoleWrite(arrayBufferAsString(keyId) + ": " + status);
+    });
+}
+
 // Verify that |keyStatuses| contains just the keys in |keys.expected|
 // and none of the keys in |keys.unexpected|. All keys should have status
 // 'usable'. Example call: verifyKeyStatuses(mediaKeySession.keyStatuses,
@@ -220,5 +229,19 @@ function verifyKeyStatuses(keyStatuses, keys)
         assert_equals(keyStatuses.get(key), undefined);
     });
 }
+
+// Return a function which executes the provided function
+// the first time it is called
+function once( fn ) {
+    var done = false;
+    return function() { if ( done ) return; done = true; return fn.apply( this, arguments ); };
+}
+
+function readDrmConfig() {
+    return fetch("/encrypted-media/content/drmconfig.json").then(function(response) {
+        return response.json();
+    });
+}
+
 
 

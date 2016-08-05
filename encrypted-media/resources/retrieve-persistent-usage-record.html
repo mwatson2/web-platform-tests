@@ -21,6 +21,8 @@
     <script>
 
     window.addEventListener( 'message', function( event ) {
+    
+        consoleWrite( JSON.stringify( event ) );
 
         var config = event.data.config,
             configuration = {   initDataTypes: [ config.initDataType ],
@@ -30,6 +32,14 @@
             assertions = [ ];
 
             config.messagehandler = messagehandler;
+            
+        function onFailure(error) {
+            
+            assertions.push( { actual: false, expected: true, message: error } );
+
+            window.opener.postMessage(assertions, '*');
+        }
+
 
         function onMessage( event )
         {
@@ -51,13 +61,7 @@
 
             config.messagehandler( config.keysystem, event.messageType, event.message )
             .then( function( response ) {
-
-                event.target.update( response ).catch(function(error) {
-
-                    assertions.push( { actual: false, expected: true, message: error } );
-
-                    window.opener.postMessage(assertions, '*');
-                });
+                event.target.update( response ).catch( onFailure );
             });
         }
 
@@ -67,7 +71,7 @@
 
         }).then(function(mediaKeys) {
 
-            var mediaKeySession = mediaKeys.createSession( 'persistent-usage-record' );
+            var mediaKeySession = mediaKeys.createSession( 'persistent-release-message' );
 
             mediaKeySession.addEventListener( 'message', onMessage );
             mediaKeySession.closed.then( function() {
@@ -75,17 +79,51 @@
                 window.opener.postMessage(assertions, '*');
 
             });
+                
+            var certBytes = base64DecodeToUnit8Array(
+             'Q0hBSQAAAAEAAAUMAAAAAAAAAAJDRVJUAAAAAQAAAfwAAAFsAAEAAQAAAFhr+y4Ydms5rTmj6bCCteW2' +
+             'AAAAAAAAAAAAAAAJzZtwNxHterM9CAoJYOM3CF9Tj0d9KND413a+UtNzRTb/////AAAAAAAAAAAAAAAA' +
+             'AAAAAAABAAoAAABU8vU0ozkqocBJMVIX2K4dugAAADZodHRwOi8vbnJkcC5uY2NwLm5ldGZsaXguY29t' +
+             'L3Jtc2RrL3JpZ2h0c21hbmFnZXIuYXNteAAAAAABAAUAAAAMAAAAAAABAAYAAABcAAAAAQABAgAAAAAA' +
+             'glDQ2GehCoNSsOaaB8zstNK0cCnf1+9gX8wM+2xwLlqJ1kyokCjt3F8P2NqXHM4mEU/G1T0HBBSI3j6X' +
+             'pKqzgAAAAAEAAAACAAAABwAAAEgAAAAAAAAACE5ldGZsaXgAAAAAH1BsYXlSZWFkeSBNZXRlcmluZyBD' +
+             'ZXJ0aWZpY2F0ZQAAAAAABjIwMjQ4AAAAAAEACAAAAJAAAQBAU73up7T8eJYVK4UHuKYgMQIRbo0yf27Y' +
+             '5EPZRPmzkx1ZDMor7Prs77CAOU9S9k0RxpxPnqUwAKRPIVCe0aX2+AAAAgBb65FSx1oKG2r8AxQjio+U' +
+             'rYGLhvA7KMlxJBbPXosAV/CJufnIdUMSA0DhxD2W3eRLh2vHukIL4VH9guUcEBXsQ0VSVAAAAAEAAAL8' +
+             'AAACbAABAAEAAABYyTlnSi+jZfRvYL0rk9sVfwAAAAAAAAAAAAAABFNh3USSkWi88BlSM6PZ2gMuceJF' +
+             'J9hzz0WzuCiwF9qv/////wAAAAAAAAAAAAAAAAAAAAAAAQAFAAAADAAAAAAAAQAGAAAAYAAAAAEAAQIA' +
+             'AAAAAFvrkVLHWgobavwDFCOKj5StgYuG8DsoyXEkFs9eiwBX8Im5+ch1QxIDQOHEPZbd5EuHa8e6Qgvh' +
+             'Uf2C5RwQFewAAAACAAAAAQAAAAwAAAAHAAABmAAAAAAAAACATWljcm9zb2Z0AAAAAAAAAAAAAAAAAAAA' +
+             'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' +
+             'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAUGxheVJlYWR5IFNM' +
+             'MCBNZXRlcmluZyBSb290IENBAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' +
+             'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACA' +
+             'MS4wLjAuMQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' +
+             'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' +
+             'AAAAAAAAAAAAAQAIAAAAkAABAECsAomwQgNY0bm6U6Au9JRvwjbNnRzmVkZi+kg7npnRQ2T+4LgyrePB' +
+             'dBRQ3qb/jxXkn++4sOFa7vjRpFBzV0MMAAACAIZNYc/yJW5CLFaLPCgAHPs+FSdlhYS6BSG3mxgo2Tbe' +
+             'HYJqj8Pm5/p6kNXKKUbx9kou+59dz/5+Q060QpP6xas=' );
+                
+            mediaKeys.setServerCertificate(certBytes).then(function () {
+                consoleWrite( 'setServerCertificate succeeded' );
+            } );
+            
+            consoleWrite( "Loading... " + event.data.sessionId );
 
-            return mediaKeySession.load( event.data.sessionId );
+            return mediaKeySession.load( event.data.sessionId /*'KgA='*/ ).then(function( success ) {
+                consoleWrite( "Loading " + success );
+                
+                if ( success ) {
+                    mediaKeySession.remove().then( function() {
+                        consoleWrite( "Remove succeeded...")
+                    }).catch(onFailure);
+                } else {
+                    onFailure( "Load failed" );
+                }
+            })
+            .catch( function( error ) { consoleWrite( "Loading failed: " + error ); onFailure( error ); } );
 
-        }).catch(function(error) {
-
-            assertions.push( { actual: false, expected: true, message: error.toString() } );
-
-            window.opener.postMessage(assertions, '*');
-
-        });
-
+        }).catch( onFailure );
 
     } );
 
