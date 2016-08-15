@@ -30,12 +30,25 @@ function runTest(config, testname) {
             else
             {
                 assert_equals( event.messageType, 'license-release' );
+               
+                consoleWrite( "Key message type: " + event.messageType + ", length " + event.message.byteLength );
+            
+                try {
+                    var keyMessage = String.fromCharCode.apply(null, new Uint16Array(event.message));
+                
+                    consoleWrite( keyMessage );
+                } catch( error ) {
+                    consoleWrite( error );
+                }
+               
             }
 
             config.messagehandler( config.keysystem, event.messageType, event.message ).then( function( response ) {
-                _mediaKeySession.update( response ).catch(function(error) {
+                return _mediaKeySession.update( response );
+            }).then( function() {
+                _video.setMediaKeys(_mediaKeys);
+            }).catch(function(error) {
                     forceTestFailureFromPromise(test, error);
-                });
             });
         }
 
@@ -81,18 +94,21 @@ function runTest(config, testname) {
 
             // Not using waitForEventAndRunStep() to avoid too many
             // EVENT(onTimeUpdate) logs.
-            _video.addEventListener('timeupdate', onTimeupdate, true);
+            _video.addEventListener('timeupdate', test.step_func( onTimeupdate ), true);
         }
 
         navigator.requestMediaKeySystemAccess(config.keysystem, [ configuration ]).then(function(access) {
             return access.createMediaKeys();
         }).then(function(mediaKeys) {
             _mediaKeys = mediaKeys;
-            _video.setMediaKeys(_mediaKeys);
+            
+            return config.servercertificate ? _mediaKeys.setServerCertificate( config.servercertificate ) : true;
+        }).then( function(success) {
             _mediaKeySession = _mediaKeys.createSession( 'persistent-usage-record' );
 
             waitForEventAndRunStep('encrypted', _video, onEncrypted, test);
             waitForEventAndRunStep('playing', _video, onPlaying, test);
+            
         }).then(function() {
             return testmediasource(config);
         }).then(function(source) {

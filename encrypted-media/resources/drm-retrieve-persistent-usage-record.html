@@ -52,12 +52,22 @@
             assertions.push( { expected: 'message', actual: event.type, message: "event type is message" } );
             assertions.push( { expected: 'license-release', actual: event.messageType, message: "message type is license-release" } );
             
-            consoleWrite( event.messageType );
+            //
             
-            var messageView = new Uint8Array(event['message']);
-            var message = extractMessageContents(event.message, 'PlayReadyKeyMessage', 'Challenge');
+            consoleWrite( "Key message type: " + event.messageType + ", length " + event.message.byteLength );
             
-            consoleWrite( message );
+            try {
+                var keyMessage = String.fromCharCode.apply(null, new Uint16Array(event.message));
+            
+                consoleWrite( keyMessage );
+            } catch( error ) {
+                consoleWrite( error );
+            }
+            
+            var keyMessageXML = new DOMParser().parseFromString(keyMessage, "application/xml");
+            var challenge = atob(keyMessageXML.getElementsByTagName("Challenge")[0].childNodes[0].nodeValue);
+            
+            consoleWrite( challenge );
             
             config.messagehandler( config.keysystem, event.messageType, event.message )
             .then( function( response ) {
@@ -84,7 +94,7 @@
         
             consoleWrite( "setServerCertificate " + success );
 
-            _mediaKeySession = _mediaKeys.createSession( 'persistent-release-message' );
+            _mediaKeySession = _mediaKeys.createSession( 'persistent-usage-record' );
 
             _mediaKeySession.addEventListener( 'message', onMessage );
             _mediaKeySession.closed.then( function() {
@@ -94,19 +104,11 @@
             });
         
             consoleWrite( "Loading: " + event.data.sessionId );
-
+            //consoleWrite("Loading: *");
             //return _mediaKeySession.load( 'KgA=' );
             return _mediaKeySession.load( event.data.sessionId );
         }).then(function( success ) {
             consoleWrite( "Loading " + success );
-                
-            if ( success ) {
-                _mediaKeySession.remove().then( function() {
-                    consoleWrite( "Remove succeeded...")
-                }).catch(onFailure);
-            } else {
-                onFailure( "Load failed" );
-            }
         }).catch( onFailure );
 
     } );
